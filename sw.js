@@ -1,6 +1,5 @@
-const CACHE = 'parola-v3';
+const CACHE = 'parola-v4';
 const ASSETS = [
-  './',
   './index.html',
   './manifest.json',
   './icon-192.png',
@@ -9,7 +8,14 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => c.addAll(ASSETS))
+      .then(() => self.skipWaiting())
+      .catch(err => {
+        // Se la cache fallisce, installa comunque
+        console.log('Cache failed, installing anyway:', err);
+        return self.skipWaiting();
+      })
   );
 });
 
