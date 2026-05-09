@@ -1,7 +1,7 @@
 {
-  "name": "Parola — Vocabolario Agent",
+  "name": "Parola — Dizionario Agent",
   "short_name": "Parola",
-  "description": "Dizionario bilingue con ripasso intelligente e spaced repetition",
+  "description": "Dizionario, concetti e ripasso intelligente",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f7f7f5",
@@ -23,12 +23,11 @@
     }
   ],
   "categories": ["education", "utilities"],
-  "screenshots": [],
   "shortcuts": [
     {
-      "name": "Cerca parola",
+      "name": "Dizionario",
       "url": "./index.html",
-      "description": "Apri il dizionario"
+      "description": "Cerca una parola"
     },
     {
       "name": "Ripasso",
