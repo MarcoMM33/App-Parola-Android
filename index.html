@@ -61,6 +61,19 @@ main{padding:20px;max-width:780px;margin:0 auto;position:relative;z-index:1}
 .search-row input::placeholder{color:var(--text3)}
 .search-btn{padding:0 22px;background:var(--text);border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;color:white;transition:opacity .15s;touch-action:manipulation}
 .search-btn:hover{opacity:.85}
+.mic-btn{padding:0 16px;background:var(--bg);border:none;border-left:1px solid var(--border2);cursor:pointer;font-size:20px;transition:all .15s;touch-action:manipulation;display:flex;align-items:center;justify-content:center}
+.mic-btn:hover{background:var(--red-light)}
+.mic-btn.listening{background:var(--red-light);animation:micPulse 1s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:.5}}
+.audio-mode-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--amber-light);border:1px solid #fde68a;border-radius:10px;margin-bottom:14px;font-size:13px;font-weight:600;color:var(--amber)}
+.audio-mode-btn{padding:6px 14px;border-radius:20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid;transition:all .12s;touch-action:manipulation}
+.audio-on-btn{background:var(--amber-light);border-color:#fde68a;color:var(--amber)}
+.audio-on-btn.active,.audio-on-btn:hover{background:var(--amber);border-color:var(--amber);color:white}
+.voice-listening-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.voice-listening-circle{width:80px;height:80px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:36px;animation:micPulse 1s ease-in-out infinite;box-shadow:0 0 0 0 rgba(220,38,38,.4);animation:voicePing 1.5s ease-in-out infinite}
+@keyframes voicePing{0%{box-shadow:0 0 0 0 rgba(220,38,38,.4)}70%{box-shadow:0 0 0 20px rgba(220,38,38,0)}100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}}
+.voice-listening-text{color:white;font-size:16px;font-weight:600}
+.voice-listening-cancel{padding:10px 24px;border-radius:20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);color:white;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation}
 
 /* RESULT CARD */
 .result-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:12px;box-shadow:var(--shadow-sm);animation:fadeIn .2s ease}
@@ -393,8 +406,15 @@ main{padding:20px;max-width:780px;margin:0 auto;position:relative;z-index:1}
   <div class="search-wrap">
     <div class="search-row">
       <input id="wordInput" type="text" placeholder="Cerca una parola o un concetto…" onkeydown="if(event.key==='Enter')doSearch()"/>
+      <button class="mic-btn" id="micBtn" onclick="startVoiceSearch()" title="Ricerca vocale">🎤</button>
       <button class="search-btn" onclick="doSearch()">Cerca</button>
     </div>
+  </div>
+  <!-- Voice overlay -->
+  <div class="voice-listening-overlay" id="voiceOverlay" style="display:none">
+    <div class="voice-listening-circle">🎤</div>
+    <div class="voice-listening-text" id="voiceListeningText">Sto ascoltando…</div>
+    <button class="voice-listening-cancel" onclick="stopVoiceSearch()">Annulla</button>
   </div>
   <div id="resultArea"></div>
 </div>
@@ -467,6 +487,13 @@ main{padding:20px;max-width:780px;margin:0 auto;position:relative;z-index:1}
         <div class="orow">
           <button class="rbtn sel" data-g="qtype" data-v="def" onclick="selOpt(this)">Definizione</button>
           <button class="rbtn" data-g="qtype" data-v="transl" onclick="selOpt(this)">Traduzione</button>
+        </div>
+      </div>
+      <div class="ogrp">
+        <label>Modalità audio</label>
+        <div class="orow">
+          <button class="rbtn" data-g="audio" data-v="off" onclick="selOpt(this);quizAudioMode=false" style="" id="audioOffBtn">🔇 Testo</button>
+          <button class="rbtn sel" data-g="audio" data-v="on" onclick="selOpt(this);quizAudioMode=true" id="audioOnBtn">🔊 Audio</button>
         </div>
       </div>
       <button class="qstart-btn" onclick="startQuiz()">Inizia quiz →</button>
@@ -651,6 +678,10 @@ function renderAll(){
 
 // ═══ TABS ═══
 function goTab(name){
+  // Stop any ongoing speech/recognition
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  stopVoiceSearch();
+  stopVoiceAnswer();
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.ntab').forEach(b=>b.classList.remove('active'));
   const tabEl = document.getElementById('tab-'+name);
@@ -700,15 +731,21 @@ async function doSearch(){
   if(currentCat==='it'){
     systemMsg='Sei un dizionario italiano esperto. Rispondi SOLO con JSON valido compatto, senza markdown, senza backtick.';
     userMsg=`Parola italiana: "${raw}".
-{"parola":"${raw}","categoria":"it","definizione_dizionario":"definizione formale concisa","spiegazione_dettagliata":"spiegazione approfondita con etimologia e contesti d'uso","esempi":["esempio quotidiano","esempio formale","esempio idiomatico"],"traduzione_italiana":"","nota_traduzione":""}`;
+Se la parola NON esiste in italiano o è chiaramente inventata/errata, restituisci:
+{"parola":"${raw}","categoria":"it","esiste":false,"suggerimenti":["parola simile 1","parola simile 2","parola simile 3"],"definizione_dizionario":"","spiegazione_dettagliata":"","esempi":[],"traduzione_italiana":"","nota_traduzione":"","pronuncia":""}
+Se la parola ESISTE, restituisci:
+{"parola":"${raw}","categoria":"it","esiste":true,"suggerimenti":[],"definizione_dizionario":"definizione formale concisa","spiegazione_dettagliata":"spiegazione approfondita con etimologia e contesti d'uso","esempi":["esempio quotidiano","esempio formale","esempio idiomatico"],"traduzione_italiana":"","nota_traduzione":"","pronuncia":"trascrizione fonetica semplice es: se-ren-di-pi-tà"}`;
   } else if(currentCat==='en'){
     systemMsg='You are an expert English dictionary. Reply ONLY with compact valid JSON, no markdown, no backticks.';
     userMsg=`English word: "${raw}". ALL fields in English EXCEPT traduzione_italiana (in Italian).
-{"parola":"${raw}","categoria":"en","definizione_dizionario":"concise formal definition in English","spiegazione_dettagliata":"detailed explanation in English with etymology and usage","esempi":["everyday example","formal example","idiomatic example"],"traduzione_italiana":"traduzione principale in italiano","nota_traduzione":"nota sfumature o stringa vuota"}`;
+If the word does NOT exist in English or is clearly invented/misspelled, return:
+{"parola":"${raw}","categoria":"en","esiste":false,"suggerimenti":["similar word 1","similar word 2","similar word 3"],"definizione_dizionario":"","spiegazione_dettagliata":"","esempi":[],"traduzione_italiana":"","nota_traduzione":"","pronuncia":""}
+If the word EXISTS, return:
+{"parola":"${raw}","categoria":"en","esiste":true,"suggerimenti":[],"definizione_dizionario":"concise formal definition in English","spiegazione_dettagliata":"detailed explanation in English with etymology and usage","esempi":["everyday example","formal example","idiomatic example"],"traduzione_italiana":"traduzione principale in italiano","nota_traduzione":"nota sfumature o stringa vuota","pronuncia":"phonetic transcription e.g: /ˌser.ənˈdɪp.ɪ.ti/"}`;
   } else {
     systemMsg='Sei un esperto enciclopedico. Spiega concetti in modo chiaro e approfondito. Rispondi SOLO con JSON valido compatto, senza markdown, senza backtick.';
     userMsg=`Concetto: "${raw}". Spiegalo come farebbe Wikipedia ma in modo più accessibile. Il campo "esempi" deve contenere esempi pratici o casi d'uso reali.
-{"parola":"${raw}","categoria":"con","definizione_dizionario":"definizione concisa del concetto","spiegazione_dettagliata":"spiegazione approfondita: origine, come funziona, perché è importante, contesto d'uso","esempi":["esempio pratico 1","esempio pratico 2","caso d'uso reale"],"traduzione_italiana":"","nota_traduzione":""}`;
+{"parola":"${raw}","categoria":"con","esiste":true,"suggerimenti":[],"definizione_dizionario":"definizione concisa del concetto","spiegazione_dettagliata":"spiegazione approfondita: origine, come funziona, perché è importante, contesto d'uso","esempi":["esempio pratico 1","esempio pratico 2","caso d'uso reale"],"traduzione_italiana":"","nota_traduzione":"","pronuncia":""}`;
   }
 
   try{
@@ -739,11 +776,41 @@ function catWordClass(cat){ return cat==='it'?'qw-it':cat==='en'?'qw-en':'qw-con
 
 function renderResult(d){
   const cat=d.categoria||'it';
+
+  // Parola non trovata — mostra errore e suggerimenti
+  if(d.esiste===false){
+    const sugsHtml=(d.suggerimenti||[]).map(s=>
+      `<button class="chat-sug" onclick="document.getElementById('wordInput').value='${s}';doSearch()">${s}</button>`
+    ).join('');
+    document.getElementById('resultArea').innerHTML=`
+      <div style="background:var(--amber-light);border:1px solid #fde68a;border-radius:var(--r);padding:20px;animation:fadeIn .2s ease">
+        <div style="font-size:15px;font-weight:700;color:var(--amber);margin-bottom:8px">⚠️ Parola non trovata</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:${sugsHtml?'14px':'0'}">
+          "${d.parola}" non sembra esistere ${cat==='en'?'in inglese':'in italiano'}. Controlla l'ortografia.
+        </div>
+        ${sugsHtml?`<div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:8px;letter-spacing:.5px;text-transform:uppercase">Forse cercavi:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">${sugsHtml}</div>`:''}
+      </div>`;
+    return;
+  }
+
   const lD=cat==='en'?'Dictionary definition':'Definizione';
   const lE=cat==='en'?'Detailed explanation':cat==='con'?'Spiegazione approfondita':'Spiegazione approfondita';
   const lX=cat==='en'?'Examples':cat==='con'?'Esempi pratici':'Esempi';
   const exHtml=(d.esempi||[]).map(e=>`<li>${e}</li>`).join('');
   const trHtml=(cat==='en'&&d.traduzione_italiana)?`<div class="rsec"><div class="rlabel">Traduzione italiana</div><div class="tbox"><strong>${d.traduzione_italiana}</strong>${d.nota_traduzione?`<em>— ${d.nota_traduzione}</em>`:''}</div></div>`:'';
+
+  // Pronuncia + audio
+  const pronHtml=d.pronuncia?`
+    <div class="rsec">
+      <div class="rlabel">🔊 Pronuncia</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-family:'Lora',serif;font-style:italic;font-size:15px;color:var(--text2)">${d.pronuncia}</span>
+        <button onclick="speakWord('${d.parola.replace(/'/g,"\\'")}','${cat}')" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;border:1.5px solid var(--border2);background:var(--bg);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);transition:all .12s" onmouseover="this.style.borderColor='var(--text)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+          ▶ Ascolta
+        </button>
+      </div>
+    </div>`:'';
 
   // List buttons
   const listBtns = DB.lists.filter(l=>l.categoria==='all'||l.categoria===cat).map(l=>{
@@ -760,6 +827,7 @@ function renderResult(d){
         </div>
       </div>
       <div class="rcard-body">
+        ${pronHtml}
         <div class="rsec"><div class="rlabel">${lD}</div><div class="rtext">${d.definizione_dizionario}</div></div>
         <div class="rsec"><div class="rlabel">${lE}</div><div class="rtext">${d.spiegazione_dettagliata}</div></div>
         <div class="rsec"><div class="rlabel">${lX}</div><ul class="ex-list">${exHtml}</ul></div>
@@ -788,6 +856,165 @@ function renderResult(d){
 
   // Init chat suggestions
   initChatSuggestions(d);
+}
+
+// ═══ PRONUNCIA AUDIO ═══
+function speakWord(word, cat){
+  if(!window.speechSynthesis){ alert('Il tuo browser non supporta la sintesi vocale'); return; }
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(word);
+  utt.lang = cat==='en' ? 'en-US' : 'it-IT';
+  utt.rate = 0.85; utt.pitch = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const langCode = cat==='en' ? 'en' : 'it';
+  const voice = voices.find(v=>v.lang.startsWith(langCode)&&v.localService) || voices.find(v=>v.lang.startsWith(langCode));
+  if(voice) utt.voice = voice;
+  window.speechSynthesis.speak(utt);
+}
+
+function speak(text, lang, rate=0.9){
+  return new Promise(resolve=>{
+    if(!window.speechSynthesis){resolve();return;}
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = lang==='en'?'en-US':'it-IT';
+    utt.rate = rate; utt.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const lc = lang==='en'?'en':'it';
+    const voice = voices.find(v=>v.lang.startsWith(lc)&&v.localService)||voices.find(v=>v.lang.startsWith(lc));
+    if(voice) utt.voice = voice;
+    utt.onend = resolve; utt.onerror = resolve;
+    window.speechSynthesis.speak(utt);
+  });
+}
+
+// ═══ RICERCA VOCALE ═══
+let recognition = null;
+
+function startVoiceSearch(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    toast('Ricerca vocale non supportata su questo browser');
+    return;
+  }
+  if(recognition){ recognition.stop(); return; }
+
+  recognition = new SR();
+  recognition.lang = currentCat==='en' ? 'en-US' : 'it-IT';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  const overlay = document.getElementById('voiceOverlay');
+  const txt = document.getElementById('voiceListeningText');
+  const micBtn = document.getElementById('micBtn');
+
+  overlay.style.display='flex';
+  micBtn.classList.add('listening');
+
+  recognition.onresult = function(e){
+    const word = e.results[0][0].transcript.trim();
+    document.getElementById('wordInput').value = word;
+    txt.textContent = `"${word}" — ricerca in corso…`;
+    setTimeout(()=>{
+      overlay.style.display='none';
+      micBtn.classList.remove('listening');
+      recognition = null;
+      doSearch();
+    }, 800);
+  };
+
+  recognition.onerror = function(e){
+    overlay.style.display='none';
+    micBtn.classList.remove('listening');
+    recognition = null;
+    if(e.error!=='aborted') toast('Non ho capito. Riprova.');
+  };
+
+  recognition.onend = function(){
+    overlay.style.display='none';
+    micBtn.classList.remove('listening');
+    recognition = null;
+  };
+
+  recognition.start();
+}
+
+function stopVoiceSearch(){
+  if(recognition){ recognition.stop(); recognition=null; }
+  document.getElementById('voiceOverlay').style.display='none';
+  document.getElementById('micBtn').classList.remove('listening');
+}
+
+// ═══ QUIZ / RIPASSO AUDIO ═══
+let quizAudioMode = true; // default on
+let voiceAnswerActive = false;
+let answerRecognition = null;
+
+async function readQuizQuestion(word, cat, opts){
+  if(!quizAudioMode) return;
+  // Read the word
+  const intro = cat==='en' ? `The word is:` : `La parola è:`;
+  await speak(intro, cat, 1.0);
+  await speak(word, cat, 0.8);
+  await new Promise(r=>setTimeout(r,400));
+  // Read options
+  const numWords = cat==='en'
+    ? ['One','Two','Three','Four']
+    : ['Uno','Due','Tre','Quattro'];
+  for(let i=0;i<opts.length;i++){
+    await speak(`${numWords[i]}: ${opts[i]}`, cat, 0.9);
+    await new Promise(r=>setTimeout(r,200));
+  }
+  // Start listening for answer
+  if(quizAudioMode) startVoiceAnswer(cat);
+}
+
+function startVoiceAnswer(cat){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR || voiceAnswerActive) return;
+
+  answerRecognition = new SR();
+  answerRecognition.lang = cat==='en'?'en-US':'it-IT';
+  answerRecognition.continuous = false;
+  answerRecognition.interimResults = false;
+  voiceAnswerActive = true;
+
+  // Show listening indicator in quiz
+  const fb = document.getElementById('qFb');
+  if(fb){ fb.textContent = cat==='en'?'🎤 Listening… say One, Two, Three or Four':'🎤 Ascoltando… di\' Uno, Due, Tre o Quattro'; fb.style.color='var(--amber)'; }
+
+  answerRecognition.onresult = function(e){
+    voiceAnswerActive = false;
+    const said = e.results[0][0].transcript.trim().toLowerCase();
+    let num = -1;
+    if(/\bun[oa]?\b|one\b|1\b/.test(said)) num=0;
+    else if(/\bdue\b|two\b|2\b/.test(said)) num=1;
+    else if(/\btre\b|three\b|3\b/.test(said)) num=2;
+    else if(/\bquattr[oa]?\b|four\b|4\b/.test(said)) num=3;
+
+    if(num>=0){
+      const btns = document.getElementById('qOpts')?.querySelectorAll('.qopt');
+      if(btns&&btns[num]) btns[num].click();
+    } else {
+      if(fb){ fb.textContent=cat==='en'?'Not understood. Tap an option.':'Non ho capito. Tocca un\'opzione.'; fb.style.color='var(--red)'; }
+    }
+  };
+  answerRecognition.onerror = function(){ voiceAnswerActive=false; };
+  answerRecognition.onend = function(){ voiceAnswerActive=false; };
+  answerRecognition.start();
+}
+
+function stopVoiceAnswer(){
+  if(answerRecognition){ answerRecognition.stop(); answerRecognition=null; }
+  voiceAnswerActive=false;
+}
+
+// SR audio mode
+async function readSRWord(word, cat){
+  const intro = cat==='en'?'The word is:':cat==='con'?'Il concetto è:':'La parola è:';
+  await speak(intro, cat, 1.0);
+  await speak(word, cat, 0.75);
 }
 
 // ═══ CHAT ═══
@@ -1093,28 +1320,43 @@ function renderQ(){
   if(qIdx>=qWords.length){ showQEnd(); return; }
   const w=qWords[qIdx]; const cat=w.categoria||'it';
   qAnswered=false;
+  stopVoiceAnswer();
   document.getElementById('qProg').textContent=`${qIdx+1} di ${qWords.length}`;
   document.getElementById('qFb').textContent=''; document.getElementById('qFb').className='qfb';
   document.getElementById('btnNext').style.display='none';
   const wEl=document.getElementById('qWord'); wEl.textContent=w.parola; wEl.className='qword '+catWordClass(cat);
-  const hint = cat==='en'?'Which is the correct definition?':cat==='con'?'Qual è la spiegazione corretta?':'Qual è la definizione corretta?';
+  const hint = quizAudioMode
+    ? (cat==='en'?'🔊 Listening for your answer…':'🔊 Ascoltando la tua risposta…')
+    : (cat==='en'?'Which is the correct definition?':cat==='con'?'Qual è la spiegazione corretta?':'Qual è la definizione corretta?');
   document.getElementById('qHint').textContent=hint;
   const pool=DB.words.filter(x=>x.id!==w.id&&x.categoria===cat).sort(()=>Math.random()-.5).slice(0,3);
   while(pool.length<3) pool.push({id:'x'+Math.random(),definizione_dizionario:cat==='en'?'No match':'Nessuna corrispondenza'});
   const opts=[...pool,w].sort(()=>Math.random()-.5);
-  document.getElementById('qOpts').innerHTML=opts.map(o=>`<button class="qopt" data-id="${o.id||''}">${o.definizione_dizionario||o.parola}</button>`).join('');
+  const numLabels=['1️⃣','2️⃣','3️⃣','4️⃣'];
+  document.getElementById('qOpts').innerHTML=opts.map((o,i)=>`<button class="qopt" data-id="${o.id||''}">${numLabels[i]} ${o.definizione_dizionario||o.parola}</button>`).join('');
   document.getElementById('qOpts').querySelectorAll('.qopt').forEach(btn=>{
     btn.addEventListener('click',function(){
       if(qAnswered)return; qAnswered=true;
+      stopVoiceAnswer();
       const isCorrect=this.dataset.id===w.id;
       document.getElementById('qOpts').querySelectorAll('.qopt').forEach(b=>b.disabled=true);
       const fb=document.getElementById('qFb');
-      if(isCorrect){this.classList.add('correct');fb.textContent=cat==='en'?'✓ Correct!':'✓ Corretto!';fb.className='qfb ok';qCorrect++;}
-      else{this.classList.add('wrong');fb.textContent=cat==='en'?'✗ Wrong':'✗ Sbagliato';fb.className='qfb ko';
-        document.getElementById('qOpts').querySelectorAll('.qopt').forEach(b=>{if(b.dataset.id===w.id)b.classList.add('correct');});}
+      if(isCorrect){
+        this.classList.add('correct');fb.textContent=cat==='en'?'✓ Correct!':'✓ Corretto!';fb.className='qfb ok';qCorrect++;
+        if(quizAudioMode) speak(cat==='en'?'Correct!':'Corretto!', cat, 1.1);
+      } else {
+        this.classList.add('wrong');fb.textContent=cat==='en'?'✗ Wrong':'✗ Sbagliato';fb.className='qfb ko';
+        document.getElementById('qOpts').querySelectorAll('.qopt').forEach(b=>{if(b.dataset.id===w.id)b.classList.add('correct');});
+        if(quizAudioMode) speak(cat==='en'?'Wrong!':'Sbagliato!', cat, 1.1);
+      }
       document.getElementById('btnNext').style.display='inline-block';
     });
   });
+  // Audio mode: read question after render
+  if(quizAudioMode){
+    const optsText = opts.map(o=>o.definizione_dizionario||o.parola);
+    setTimeout(()=>readQuizQuestion(w.parola, cat, optsText), 300);
+  }
 }
 function nextQ(){ qIdx++; renderQ(); }
 function showQEnd(){
@@ -1217,15 +1459,17 @@ function renderSRCard(){
   const w=srQueue[srIdx]; const cat=w.categoria||'it';
   const pct=Math.round((srIdx/srQueue.length)*100);
   const fill=document.getElementById('srProgressFill'); if(fill)fill.style.width=pct+'%';
+  const audioBtn=quizAudioMode?`<button onclick="readSRWord('${w.parola.replace(/'/g,"\\'")}','${cat}')" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border2);background:var(--bg);font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);margin-top:8px;touch-action:manipulation">🔊 Rileggi</button>`:'';
   document.getElementById('srCard').innerHTML=`
     <div class="sr-card">
       <div class="sr-card-top">
         <div class="sr-card-meta"><span>${srIdx+1} di ${srQueue.length}</span><span>${catFlag(cat)}</span></div>
         <div class="sr-card-word ${catWordClass(cat)}">${w.parola}</div>
         <div class="sr-card-hint">${cat==='en'?'Do you know this word?':cat==='con'?'Conosci questo concetto?':'Conosci questa parola?'}</div>
+        ${audioBtn}
       </div>
       <div class="sr-card-body">
-        <button class="sr-show-btn" onclick="showSRAnswer()">${cat==='en'?'Show definition ↓':'Mostra definizione ↓'}</button>
+        <button class="sr-show-btn" onclick="showSRAnswer('${cat}')">${cat==='en'?'Show definition ↓':'Mostra definizione ↓'}</button>
         <div class="sr-answer" id="srAnswer">
           <div class="sr-answer-def">${w.definizione_dizionario||''}${(cat==='en'&&w.traduzione_italiana)?`<br><br><strong style="color:var(--blue)">${w.traduzione_italiana}</strong>`:''}</div>
           <div class="sr-buttons">
@@ -1236,10 +1480,18 @@ function renderSRCard(){
         </div>
       </div>
     </div>`;
+  // Audio: read word automatically
+  if(quizAudioMode) setTimeout(()=>readSRWord(w.parola, cat), 300);
 }
-function showSRAnswer(){
+function showSRAnswer(cat){
   document.getElementById('srAnswer').classList.add('show');
-  document.querySelector('.sr-show-btn').style.display='none';
+  const btn=document.querySelector('.sr-show-btn');
+  if(btn)btn.style.display='none';
+  // Audio: read definition
+  if(quizAudioMode){
+    const w=srQueue[srIdx];
+    if(w) setTimeout(()=>speak(w.definizione_dizionario||'', cat||w.categoria||'it', 0.85), 300);
+  }
 }
 function srRate(rating){
   const w=srQueue[srIdx];
@@ -1461,6 +1713,11 @@ if('serviceWorker' in navigator){
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
 
 // ═══ INIT ═══
+// Preload voices for speech synthesis
+if(window.speechSynthesis){
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = ()=>{ window.speechSynthesis.getVoices(); };
+}
 loadDB();
 </script>
 </body>
