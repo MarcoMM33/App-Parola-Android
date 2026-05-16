@@ -1,4 +1,4 @@
-const CACHE = 'parola-v1';
+const CACHE = 'parola-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
